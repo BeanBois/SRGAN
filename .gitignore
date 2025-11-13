@@ -1,0 +1,4 @@
+/data/train/*.png
+/data/valid/*.png
+.vscode/
+__pycache__/
