@@ -5,3 +5,4 @@ torchvision==0.18.1
 Pillow>=9.0.0                          # compatible with Python 3.10
 numpy>=2.0                             # latest stable for Python 3.10
 pandas==2.2.3                         # good stable version for Python 3.10
+opencv-python==4.12.0.88
