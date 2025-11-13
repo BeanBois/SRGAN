@@ -1,12 +1,13 @@
 import torch 
 import torch.nn as nn 
-from src import VGGLoss
+from src_SRGAN import VGGLoss
 import torch_directml
 import os 
 dml = torch_directml.device()
 
 
-def train(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
+
+def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
     """
     Train SRGAN with proper batch handling.
     
@@ -110,7 +111,7 @@ def train(generator, discriminator, dataloader, num_epochs=100, save_interval=10
         # Save checkpoint
         if (epoch + 1) % save_interval == 0:
             save_checkpoint(generator, discriminator, optimizer_G, optimizer_D, 
-                          epoch, f'checkpoint_epoch_{epoch+1}.pth')
+                          epoch, f'SRGAN{os.sep}checkpoint_epoch_{epoch+1}.pth')
 
 def save_checkpoint(generator, discriminator, optimizer_G, optimizer_D, epoch, filename):
     checkpoint = {
@@ -125,7 +126,7 @@ def save_checkpoint(generator, discriminator, optimizer_G, optimizer_D, epoch, f
     torch.save(checkpoint, filename)
     print(f'Checkpoint saved: {filename}')
 
-def load_checkpoint(generator, discriminator, optimizer_G, optimizer_D, filename):
+def load_checkpoint(generator, discriminator, optimizer_G, optimizer_D, filename,type):
     checkpoint = torch.load(filename)
     generator.load_state_dict(checkpoint['generator_state_dict'])
     discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
@@ -133,12 +134,13 @@ def load_checkpoint(generator, discriminator, optimizer_G, optimizer_D, filename
     optimizer_D.load_state_dict(checkpoint['optimizer_D_state_dict'])
     epoch = checkpoint['epoch']
     os.makedirs('model_checkpoints', exist_ok=True)
+    filename = f'{type}{os.sep}{filename}'
     filename = os.path.join('model_checkpoints', filename)
     print(f'Checkpoint loaded: {filename} (epoch {epoch})')
     return epoch
 
 if __name__ == '__main__':
-    from src import GenerativeNetwork, DiscriminatoryNetwork, ImgDataset
+    from src_SRGAN import GenerativeNetwork, DiscriminatoryNetwork, ImgDataset
     from torch.utils.data import DataLoader
     
     generator = GenerativeNetwork()
