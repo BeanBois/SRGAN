@@ -26,7 +26,7 @@ def downscale_image(img, r=4, sigma=None):
 
 
 class ImgDataset(Dataset):
-    def __init__(self, img_dir, hr_size = 96,downscale_factor=4, target_transform=None):
+    def __init__(self, img_dir, hr_size = 96, downscale_factor=4, target_transform=None):
         self.img_dir = img_dir
         self.hr_size = hr_size
         self.downscale_factor = downscale_factor

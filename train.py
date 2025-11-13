@@ -1,6 +1,10 @@
 import torch 
 import torch.nn as nn 
 from src import VGGLoss
+import torch_directml
+import os 
+dml = torch_directml.device()
+
 
 def train(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
     """
@@ -21,7 +25,11 @@ def train(generator, discriminator, dataloader, num_epochs=100, save_interval=10
     adversarial_loss = nn.BCELoss()
     content_loss = VGGLoss(feature_layer=36)  
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # see if its Windows or Linux
+    if os.name == 'nt':
+        device = dml
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Training on device: {device}")
     
     generator.to(device)
@@ -88,7 +96,7 @@ def train(generator, discriminator, dataloader, num_epochs=100, save_interval=10
             epoch_g_loss += g_loss.item()
             
             # Print progress
-            if i % 100 == 0:
+            if i % 10 == 0:
                 print(f'Epoch [{epoch+1}/{num_epochs}] Batch [{i}/{len(dataloader)}] '
                       f'D_loss: {d_loss.item():.4f} G_loss: {g_loss.item():.4f} '
                       f'Perceptual: {perceptual_loss.item():.4f} Adversarial: {adversarial_g_loss.item():.4f}')
@@ -112,6 +120,8 @@ def save_checkpoint(generator, discriminator, optimizer_G, optimizer_D, epoch, f
         'optimizer_G_state_dict': optimizer_G.state_dict(),
         'optimizer_D_state_dict': optimizer_D.state_dict(),
     }
+    os.makedirs('model_checkpoints', exist_ok=True)
+    filename = os.path.join('model_checkpoints', filename)
     torch.save(checkpoint, filename)
     print(f'Checkpoint saved: {filename}')
 
@@ -122,6 +132,8 @@ def load_checkpoint(generator, discriminator, optimizer_G, optimizer_D, filename
     optimizer_G.load_state_dict(checkpoint['optimizer_G_state_dict'])
     optimizer_D.load_state_dict(checkpoint['optimizer_D_state_dict'])
     epoch = checkpoint['epoch']
+    os.makedirs('model_checkpoints', exist_ok=True)
+    filename = os.path.join('model_checkpoints', filename)
     print(f'Checkpoint loaded: {filename} (epoch {epoch})')
     return epoch
 

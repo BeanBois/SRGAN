@@ -2,3 +2,5 @@
 /data/valid/*.png
 .vscode/
 __pycache__/
+venv/
+model_checkpoints/
