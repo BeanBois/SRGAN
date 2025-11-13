@@ -1,6 +1,5 @@
 import torch 
 import torch.nn as nn 
-from src_SRGAN import VGGLoss
 import os 
 import argparse
 import torch.optim as optim
@@ -9,6 +8,7 @@ import torch.optim as optim
 
 
 def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
+    from src_SRGAN import VGGLoss
     """
     Train SRGAN with proper batch handling.
     
@@ -143,7 +143,7 @@ def load_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, fi
 
 
 def train_SRCNN(model, train_loader, val_loader, num_epochs=100, save_interval = 10):
-    from src_SRCNN import calculate_psnr, validate_srcnn
+    from src_SRCNN import validate_srcnn
     # see if its Windows or Linux
     if os.name == 'nt':
         import torch_directml
@@ -218,13 +218,17 @@ def train_SRCNN(model, train_loader, val_loader, num_epochs=100, save_interval =
 
 
 if __name__ == '__main__':
+    from torch.utils.data import DataLoader
+
     parser = argparse.ArgumentParser(description="Script to allow choosing of model type")
     parser.add_argument("--model", help="the model you want to train")
 
     args = parser.parse_args()
     if args.model == 'SRCNN':
         print('Training SRCNN')
+
         from src_SRCNN import SRDataset, SRCNN
+
         num_channels = 1  # Y channel only
         f1, f2, f3 = 9, 5, 5
         n1, n2 = 64, 32
@@ -251,7 +255,6 @@ if __name__ == '__main__':
         print('Training SRGAN')
 
         from src_SRGAN import GenerativeNetwork, DiscriminatoryNetwork, ImgDataset
-        from torch.utils.data import DataLoader
         
         generator = GenerativeNetwork()
         discriminator = DiscriminatoryNetwork()
