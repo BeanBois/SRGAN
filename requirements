@@ -1,8 +1,6 @@
-
-torch-directml==0.2.2.dev240614          # compatible with PyTorch 2.3.1 :contentReference[oaicite:1]{index=1}
 torch==2.3.1
 torchvision==0.18.1
 Pillow>=9.0.0                          # compatible with Python 3.10
 numpy>=2.0                             # latest stable for Python 3.10
 pandas==2.2.3                         # good stable version for Python 3.10
-opencv-python==4.12.0.88
+opencv-python==4.10.0.84

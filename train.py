@@ -129,18 +129,6 @@ def save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, ep
     torch.save(checkpoint, filename)
     print(f'Checkpoint saved: {filename}')
 
-def load_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, filename,type):
-    checkpoint = torch.load(filename)
-    generator.load_state_dict(checkpoint['generator_state_dict'])
-    discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
-    optimizer_G.load_state_dict(checkpoint['optimizer_G_state_dict'])
-    optimizer_D.load_state_dict(checkpoint['optimizer_D_state_dict'])
-    epoch = checkpoint['epoch']
-    os.makedirs('model_checkpoints', exist_ok=True)
-    filename = os.path.join('model_checkpoints', 'SRGAN', filename)
-    print(f'Checkpoint loaded: {filename} (epoch {epoch})')
-    return epoch
-
 
 def train_SRCNN(model, train_loader, val_loader, num_epochs=100, save_interval = 10):
     from src_SRCNN import validate_srcnn

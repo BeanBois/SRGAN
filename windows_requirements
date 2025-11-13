@@ -13,4 +13,4 @@ Pillow==10.2.0                       # Verified working (fixes _imaging import)
 tqdm>=4.66.0                         # For progress bars (if your SRGAN uses it)
 matplotlib>=3.8.0                    # For visualizing results (optional)
 scipy>=1.11.0                        # Some GAN utilities rely on it
-opencv-python==4.12.0.88
+opencv-python==4.10.0.84
