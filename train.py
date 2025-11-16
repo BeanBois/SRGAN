@@ -232,7 +232,7 @@ if __name__ == '__main__':
         n1, n2 = 64, 32
         scale_factor = 3
         patch_size = 33
-        stride = 14
+        stride = 33
         batch_size = 128
         num_epochs = 100
         images_per_epoch = 91
