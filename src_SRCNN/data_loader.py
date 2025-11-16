@@ -1,106 +1,52 @@
 import torch 
-from torch.utils.data import Dataset, SubsetRandomSampler
+from torch.utils.data import Dataset, Sampler
 import os
 from PIL import Image
 import numpy as np
 import cv2
 import random
 
-def get_epoch_sampler(dataset, images_per_epoch=30, epoch=0):
-    """
-    Create a sampler that randomly selects patches from N random images
-    
-    Args:
-        dataset: SRDataset instance
-        images_per_epoch: Number of images to sample
-        epoch: Current epoch number (for reproducibility)
-    
-    Returns:
-        SubsetRandomSampler with indices from randomly selected images
-    """
-    # Resample patches with different random seed each epoch
-    # This gives you DIFFERENT patches every epoch!
-    random.seed(epoch)
-    np.random.seed(epoch)
-    
-    # Randomly select image indices
-    num_images = len(dataset.img_files)
-    selected_img_indices = random.sample(range(num_images), 
-                                        min(images_per_epoch, num_images))
-    
-    # Get all patch indices from selected images
-    patch_indices = []
-    for img_idx in selected_img_indices:
-        start_idx = dataset.img_patch_starts[img_idx]
-        end_idx = dataset.img_patch_starts[img_idx + 1]
-        patch_indices.extend(range(start_idx, end_idx))
-    
-    print(f"Epoch {epoch}: Sampled {len(selected_img_indices)} images, "
-          f"{len(patch_indices)} patches")
-    
-    return SubsetRandomSampler(patch_indices)
-
 class SRDataset(Dataset):
     def __init__(self, img_dir, scale_factor=3, patch_size=33, 
-                 patches_per_image=100,  # 🔥 NEW: Random sampling
-                 use_cache=False):  # 🔥 Don't cache random samples
+                 patches_per_image=100):
         """
-        SRCNN Dataset with random patch sampling per image
+        SRCNN Dataset with on-the-fly random patch extraction
+        NO pre-extraction, NO caching - generates patches on demand!
         
         Args:
             img_dir: Directory containing training images
             scale_factor: Upscaling factor (2, 3, or 4)
             patch_size: Size of sub-images to extract (default: 33)
-            patches_per_image: Number of random patches to sample per image
-            use_cache: Don't use cache for random sampling (generates new patches each epoch)
+            patches_per_image: Number of random patches per image
         """
         self.img_dir = img_dir
         self.scale_factor = scale_factor
         self.patch_size = patch_size
         self.patches_per_image = patches_per_image
         
-        # Get all image files
+        # Get all image files - that's it! No extraction!
         self.img_files = sorted([f for f in os.listdir(img_dir) 
                                 if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))])
         
-        print(f"Total images available: {len(self.img_files)}")
-        print(f"Random sampling {patches_per_image} patches per image")
-        
-        # Track which patches belong to which image for epoch sampling
-        self.img_patch_count = patches_per_image
-        
-        # Don't pre-extract - will do on-the-fly with random sampling
-        self.lr_patches = []
-        self.hr_patches = []
-        self.img_patch_starts = []
-        
-        # Extract patches with random sampling
-        self._extract_all_patches()
+        print(f"Dataset initialized with {len(self.img_files)} images")
+        print(f"Will generate {patches_per_image} random patches per image on-the-fly")
+        print(f"Total virtual patches: {len(self.img_files) * patches_per_image}")
     
-    def _extract_all_patches(self):
-        """Extract random patches from ALL images"""
-        self.lr_patches = []
-        self.hr_patches = []
-        self.img_patch_starts = [0]
-        
-        print(f"Extracting {self.patches_per_image} random patches from {len(self.img_files)} images...")
-        
-        for idx, img_file in enumerate(self.img_files):
-            self._extract_random_patches_from_image(img_file)
-            self.img_patch_starts.append(len(self.hr_patches))
-            
-            if (idx + 1) % 50 == 0:
-                print(f"  {idx + 1}/{len(self.img_files)} images, "
-                      f"{len(self.hr_patches)} total patches")
-        
-        print(f"✓ Total: {len(self.hr_patches)} patches from {len(self.img_files)} images")
-        print(f"✓ Exactly {len(self.hr_patches) // len(self.img_files)} patches per image")
+    def __len__(self):
+        """Total number of patches across all images"""
+        return len(self.img_files) * self.patches_per_image
     
-    def _extract_random_patches_from_image(self, img_file):
+    def __getitem__(self, idx):
         """
-        Extract random patches from a single image
-        Instead of grid sampling, randomly pick patch locations
+        Generate a random patch on-the-fly
+        idx represents: image_idx * patches_per_image + patch_idx
         """
+        # Determine which image this patch belongs to
+        img_idx = idx // self.patches_per_image
+        patch_idx = idx % self.patches_per_image
+        
+        # Load the image
+        img_file = self.img_files[img_idx]
         img_path = os.path.join(self.img_dir, img_file)
         
         img_pil = Image.open(img_path).convert('RGB')
@@ -110,18 +56,24 @@ class SRDataset(Dataset):
         
         h, w = y_channel.shape
         
-        # 🔥 Randomly sample patch top-left positions
-        for _ in range(self.patches_per_image):
-            # Random top-left corner
-            i = random.randint(0, h - self.patch_size)
-            j = random.randint(0, w - self.patch_size)
-            
-            # Extract patch
-            hr_patch = y_channel[i:i+self.patch_size, j:j+self.patch_size]
-            lr_patch = self._generate_lr_patch(hr_patch)
-            
-            self.hr_patches.append(hr_patch)
-            self.lr_patches.append(lr_patch)
+        # 🔥 Generate random patch position
+        # Use patch_idx as seed for reproducibility within epoch
+        # But different epochs will have different random states
+        i = random.randint(0, h - self.patch_size)
+        j = random.randint(0, w - self.patch_size)
+        
+        # Extract patch
+        hr_patch = y_channel[i:i+self.patch_size, j:j+self.patch_size]
+        lr_patch = self._generate_lr_patch(hr_patch)
+        
+        # Normalize and convert to tensors
+        lr_patch = lr_patch.astype(np.float32) / 255.0
+        hr_patch = hr_patch.astype(np.float32) / 255.0
+        
+        lr_patch = torch.from_numpy(lr_patch).unsqueeze(0)
+        hr_patch = torch.from_numpy(hr_patch).unsqueeze(0)
+        
+        return lr_patch, hr_patch
     
     def _generate_lr_patch(self, hr_patch):
         """Generate low-resolution patch"""
@@ -130,23 +82,49 @@ class SRDataset(Dataset):
         lr_patch = cv2.resize(hr_patch, lr_size, interpolation=cv2.INTER_CUBIC)
         lr_patch = cv2.resize(lr_patch, (w, h), interpolation=cv2.INTER_CUBIC)
         return lr_patch
+
+
+class EpochImageSampler(Sampler):
+    """
+    Sampler that selects random images each epoch
+    Only generates indices for selected images' patches
+    """
+    def __init__(self, dataset, images_per_epoch, seed=0):
+        """
+        Args:
+            dataset: SRDataset instance
+            images_per_epoch: Number of images to sample per epoch
+            seed: Random seed (should be different each epoch)
+        """
+        self.dataset = dataset
+        self.images_per_epoch = images_per_epoch
+        self.seed = seed
+        
+        # Calculate which patches to use
+        self.indices = self._generate_indices()
+    
+    def _generate_indices(self):
+        """Generate patch indices for randomly selected images"""
+        random.seed(self.seed)
+        
+        # Randomly select images
+        num_images = len(self.dataset.img_files)
+        selected_imgs = random.sample(range(num_images), 
+                                     min(self.images_per_epoch, num_images))
+        
+        # Generate indices for all patches from selected images
+        indices = []
+        for img_idx in selected_imgs:
+            start_idx = img_idx * self.dataset.patches_per_image
+            end_idx = start_idx + self.dataset.patches_per_image
+            indices.extend(range(start_idx, end_idx))
+        
+        return indices
+    
+    def __iter__(self):
+        # Shuffle the indices
+        random.shuffle(self.indices)
+        return iter(self.indices)
     
     def __len__(self):
-        return len(self.hr_patches)
-    
-    def __getitem__(self, idx):
-        """Return a single patch pair"""
-        lr_patch = self.lr_patches[idx].astype(np.float32) / 255.0
-        hr_patch = self.hr_patches[idx].astype(np.float32) / 255.0
-        
-        lr_patch = torch.from_numpy(lr_patch).unsqueeze(0)
-        hr_patch = torch.from_numpy(hr_patch).unsqueeze(0)
-        
-        return lr_patch, hr_patch
-    
-    def resample_patches(self):
-        """
-        Resample all patches (call this at the start of each epoch for variation)
-        """
-        print(f"Resampling patches for new epoch...")
-        self._extract_all_patches()
+        return len(self.indices)
