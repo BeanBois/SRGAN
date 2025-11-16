@@ -130,7 +130,7 @@ def save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, ep
     print(f'Checkpoint saved: {filename}')
 
 
-def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, images_per_epoch=91, batch_size = 128):
+def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, images_per_epoch=91, batch_size = 128, resample_every_n_epochs=1):
     from src_SRCNN import validate_srcnn, get_epoch_sampler
     # see if its Windows or Linux
     if os.name == 'nt':
@@ -140,6 +140,8 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Training on device: {device}")
+    print(f'Using {images_per_epoch} images per epoch')
+    print(f'Resampling every {resample_every_n_epochs} epochs')
 
     # Loss function: Mean Squared Error
     criterion = nn.MSELoss()
@@ -165,6 +167,9 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
     # Training loop
     for epoch in range(num_epochs):
         model.train()
+        if (epoch + 1) % resample_every_n_epochs == 0:
+            dataset.resample_patches()
+
         epoch_sampler = get_epoch_sampler(dataset, images_per_epoch, epoch)
         
         # 🔥 CREATE NEW DATALOADER WITH THIS EPOCH'S SAMPLER
@@ -239,9 +244,8 @@ if __name__ == '__main__':
         
         train_dataset = SRDataset('data/train', scale_factor, patch_size, stride)
         val_dataset = SRDataset('data/valid', scale_factor, patch_size, stride)
-        
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-        val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+
+        val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
         
         # Initialize model
         model = SRCNN(num_channels, f1, f2, f3, n1, n2)
