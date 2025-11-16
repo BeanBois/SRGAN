@@ -130,8 +130,8 @@ def save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, ep
     print(f'Checkpoint saved: {filename}')
 
 
-def train_SRCNN(model, train_loader, val_loader, num_epochs=100, save_interval = 10):
-    from src_SRCNN import validate_srcnn
+def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, images_per_epoch=91, batch_size = 128):
+    from src_SRCNN import validate_srcnn, get_epoch_sampler
     # see if its Windows or Linux
     if os.name == 'nt':
         import torch_directml
@@ -165,6 +165,16 @@ def train_SRCNN(model, train_loader, val_loader, num_epochs=100, save_interval =
     # Training loop
     for epoch in range(num_epochs):
         model.train()
+        epoch_sampler = get_epoch_sampler(dataset, images_per_epoch, epoch)
+        
+        # 🔥 CREATE NEW DATALOADER WITH THIS EPOCH'S SAMPLER
+        train_loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            sampler=epoch_sampler,  # Use sampler instead of shuffle
+            num_workers=4,
+            pin_memory=True
+        )
         epoch_loss = 0
         
         for batch_idx, (lr_imgs, hr_imgs) in enumerate(train_loader):
@@ -225,7 +235,7 @@ if __name__ == '__main__':
         stride = 14
         batch_size = 128
         num_epochs = 100
-        
+        images_per_epoch = 91
         
         train_dataset = SRDataset('data/train', scale_factor, patch_size, stride)
         val_dataset = SRDataset('data/valid', scale_factor, patch_size, stride)
@@ -237,7 +247,7 @@ if __name__ == '__main__':
         model = SRCNN(num_channels, f1, f2, f3, n1, n2)
         
         # Train
-        model = train_SRCNN(model, train_loader, num_epochs)
+        model = train_SRCNN(model, train_dataset, val_loader, num_epochs, images_per_epoch=91, batch_size=batch_size)
         
     else:
         print('Training SRGAN')

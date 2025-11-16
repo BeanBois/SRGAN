@@ -1,10 +1,43 @@
 import torch 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, SubsetRandomSampler
 import os
 from PIL import Image
 import numpy as np
 import torchvision.transforms as T
 import cv2
+import random 
+
+def get_epoch_sampler(dataset, images_per_epoch=91, epoch=0):
+    """
+    Create a sampler that randomly selects patches from N random images
+    
+    Args:
+        dataset: SRDataset instance
+        images_per_epoch: Number of images to sample (default: 91 like paper)
+        epoch: Current epoch number (for reproducibility)
+    
+    Returns:
+        SubsetRandomSampler with indices from randomly selected images
+    """
+    # Seed with epoch for different images each epoch
+    random.seed(epoch)
+    
+    # Randomly select image indices
+    num_images = len(dataset.img_files)
+    selected_img_indices = random.sample(range(num_images), 
+                                        min(images_per_epoch, num_images))
+    
+    # Get all patch indices from selected images
+    patch_indices = []
+    for img_idx in selected_img_indices:
+        start_idx = dataset.img_patch_starts[img_idx]
+        end_idx = dataset.img_patch_starts[img_idx + 1]
+        patch_indices.extend(range(start_idx, end_idx))
+    
+    print(f"Epoch {epoch}: Sampled {len(selected_img_indices)} images, "
+          f"{len(patch_indices)} patches")
+    
+    return SubsetRandomSampler(patch_indices)
 
 class SRDataset(Dataset):
     def __init__(self, img_dir, scale_factor=3, patch_size=33, stride=14):
