@@ -33,7 +33,10 @@ class GenerativeNetwork(nn.Module):
         )
         
         # Final conv: 9x9 kernel, output 3 channels (RGB)
-        self.conv3 = nn.Conv2d(64, 3, kernel_size=9, padding=4)  # ✅ Input=64, output channels=3, kernel=9
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(64, 3, kernel_size=9, padding=4),
+            nn.Tanh()  # ✅ Most implementations include this
+        )  # ✅ Input=64, output channels=3, kernel=9
         
     def forward(self, x):
         out1 = self.conv1(x)
