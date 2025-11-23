@@ -26,7 +26,7 @@ def downscale_image(img, r=4, sigma=None):
 
 
 class ImgDataset(Dataset):
-    def __init__(self, img_dir, hr_size=96, downscale_factor=4, target_transform=None):
+    def __init__(self, img_dir, hr_size=96, downscale_factor=4, target_transform=None, is_training = True):
         self.img_dir = img_dir
         self.hr_size = hr_size
         self.downscale_factor = downscale_factor
@@ -34,11 +34,18 @@ class ImgDataset(Dataset):
         self.img_files = sorted([f for f in os.listdir(img_dir) 
                                 if f.endswith('.png')])
         
-        self.hr_transform = T.Compose([
-            T.RandomCrop(hr_size),
-            T.ToTensor(),  # [0, 1]
-        ])
-    
+        if is_training:
+                self.hr_transform = T.Compose([
+                T.RandomCrop(hr_size),
+                T.ToTensor(),  # [0, 1]
+            ])
+        else:
+
+            self.hr_transform = T.Compose([
+                T.CenterCrop(hr_size),
+                T.ToTensor(),  # [0, 1]
+            ])
+        
     def __getitem__(self, idx):
         img_name = self.img_files[idx]
         img_path = os.path.join(self.img_dir, img_name)
