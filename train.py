@@ -79,8 +79,8 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
     generator.train()
     discriminator.train()
 
-    scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=75, gamma=0.1)
-    scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=75, gamma=0.1)
+    scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=num_epochs//2, gamma=0.1)
+    scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=num_epochs//2, gamma=0.1)
     for epoch in range(num_epochs):
         epoch_d_loss = 0.0
         epoch_g_loss = 0.0
