@@ -35,7 +35,7 @@ class ImgDataset(Dataset):
                                 if f.endswith('.png')])
         
         self.hr_transform = T.Compose([
-            T.CenterCrop(hr_size),
+            T.RandomCrop(hr_size),
             T.ToTensor(),  # [0, 1]
         ])
     
