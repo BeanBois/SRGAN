@@ -4,7 +4,7 @@ import os
 import argparse
 import torch.optim as optim
 
-def pretrain_SRResNet(generator, dataloader, num_iterations=1e6):
+def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=10000):
     """Pre-train generator with MSE loss before GAN training."""
     if os.name == 'nt':
         import torch_directml
@@ -12,8 +12,12 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6):
         device = dml
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Phase 1: Pre-training SRResNet with MSE loss...")
+    
+    print("="*60)
+    print("Phase 1: Pre-training SRResNet with MSE loss")
+    print("="*60)
     print(f"Training on device: {device}")
+    print(f"Target iterations: {int(num_iterations):,}")
 
     optimizer = torch.optim.Adam(generator.parameters(), lr=1e-4, betas=(0.9, 0.999))
     mse_loss = nn.MSELoss()
@@ -33,10 +37,28 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6):
             optimizer.step()
             
             iteration += 1
+            
             if iteration % 1000 == 0:
-                print(f'Pre-train iter {iteration}, MSE: {loss.item():.6f}')
+                print(f'Pre-train iteration {iteration:,}/{int(num_iterations):,}, MSE: {loss.item():.6f}')
+            
+            # ✅ Save checkpoints during pre-training
+            if iteration % save_interval == 0:
+                os.makedirs('model_checkpoints/SRGAN', exist_ok=True)
+                save_path = f'model_checkpoints/SRGAN/SRResNet_pretrain_iter_{iteration}.pth'
+                torch.save(generator.state_dict(), save_path)
+                print(f'Checkpoint saved: {save_path}')
+            
             if iteration >= num_iterations:
                 break
+        
+        if iteration >= num_iterations:
+            break
+    
+    # ✅ Save final pre-trained model
+    os.makedirs('model_checkpoints/SRGAN', exist_ok=True)
+    final_save_path = 'model_checkpoints/SRGAN/SRResNet_pretrained_final.pth'
+    torch.save(generator.state_dict(), final_save_path)
+    print(f'Final pre-trained model saved: {final_save_path}')
     
     return generator
 
@@ -68,8 +90,13 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
         device = dml
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print("Phase 2: Training SRGAN with perceptual loss...")
+    
+    print("="*60)
+    print("Phase 2: Training SRGAN with perceptual loss")
+    print("="*60)
     print(f"Training on device: {device}")
+    print(f"Total epochs: {num_epochs}")
+
     
     generator.to(device)
     discriminator.to(device)
@@ -137,7 +164,7 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
             epoch_g_loss += g_loss.item()
             
             # Print progress
-            if i % 10 == 0:
+            if i % 100 == 0:
                 print(f'Epoch [{epoch+1}/{num_epochs}] Batch [{i}/{len(dataloader)}] '
                       f'D_loss: {d_loss.item():.4f} G_loss: {g_loss.item():.4f} '
                       f'Perceptual: {perceptual_loss.item():.4f} Adversarial: {adversarial_g_loss.item():.4f}')
@@ -300,11 +327,11 @@ if __name__ == '__main__':
         generator = GenerativeNetwork()
         discriminator = DiscriminatoryNetwork()
         
-        training_dataset = ImgDataset('data/train', downscale_factor=4)
+        training_dataset = ImgDataset('data/train', downscale_factor=4, patches_per_image=20, is_training=True)
         
         dataloader = DataLoader(
             training_dataset, 
-            batch_size=32,          
+            batch_size=16,          
             shuffle=True,           
             num_workers=4,          
             pin_memory=True         
@@ -317,8 +344,11 @@ if __name__ == '__main__':
         generator = pretrain_SRResNet(
             generator, 
             dataloader, 
-            num_iterations=20000, # 10^6 // (800//16)
+            num_iterations=10**6, # 10^6 // (800//16)
+            save_interval=50000
         )
+
+        phase2_iterations = 200_000  # Paper: 2×10^5
+        phase2_epochs = int(phase2_iterations / len(dataloader))
         
-        
-        train_SRGAN(generator, discriminator, dataloader, num_epochs=8000,save_interval=400) # 200000 // (800//16)
+        train_SRGAN(generator, discriminator, dataloader, num_epochs=phase2_epochs  ,save_interval=phase2_epochs//10) # 200000 // (800//16)
