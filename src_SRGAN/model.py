@@ -2,60 +2,47 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .auxillaries import ResidualBlock, UpsampleBlock
+import numpy as np
 
 
 class GenerativeNetwork(nn.Module):
-    def __init__(self, num_residual_blocks=16, upscale_factor=4, kernel_size = 3, feature_size = 64):
+    def __init__(self, num_residual_blocks=16, upscale_factor=4, in_channels=3, feature_size=64):
         super(GenerativeNetwork, self).__init__()
         
-        # Initial convolution layer
+        # Initial conv: 9x9 kernel as per paper
         self.conv1 = nn.Sequential(
-            nn.Conv2d(kernel_size, feature_size, kernel_size=kernel_size**2, padding=4),
+            nn.Conv2d(in_channels, feature_size, kernel_size=9, padding=4),
             nn.PReLU()
         )
         
-        # Residual blocks
-        residual_blocks = []
-        for _ in range(num_residual_blocks):
-            residual_blocks.append(ResidualBlock(channels=feature_size))
-        self.residual_blocks = nn.Sequential(*residual_blocks)
+        # Residual blocks (B=16 in paper)
+        self.residual_blocks = nn.Sequential(
+            *[ResidualBlock(channels=feature_size) for _ in range(num_residual_blocks)]
+        )
         
-        # Post-residual convolution
+        # Post-residual conv: 3x3 kernel
         self.conv2 = nn.Sequential(
-            nn.Conv2d(feature_size, feature_size, kernel_size=kernel_size, padding=1),
+            nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1),
             nn.BatchNorm2d(feature_size)
         )
         
-        # Upsampling layers (for 4x: two 2x upsamples)
-        upsample_blocks = []
-        for _ in range(upscale_factor // 2):
-            upsample_blocks.append(UpsampleBlock(feature_size, upscale_factor=2))
-        self.upsample_blocks = nn.Sequential(*upsample_blocks)
+        # Upsampling: log2(upscale_factor) blocks for proper scaling
+        num_upsample = int(np.log2(upscale_factor))
+        self.upsample_blocks = nn.Sequential(
+            *[UpsampleBlock(feature_size, upscale_factor=2) for _ in range(num_upsample)]
+        )
         
-        # Final output convolution
-        self.conv3 = nn.Conv2d(feature_size, kernel_size, kernel_size=kernel_size**2, padding=4)
+        # Final conv: 9x9 kernel, output 3 channels (RGB)
+        self.conv3 = nn.Conv2d(feature_size, in_channels, kernel_size=9, padding=4)
         
     def forward(self, x):
-        # Initial feature extraction
         out1 = self.conv1(x)
-        
-        # Residual blocks
         out = self.residual_blocks(out1)
-        
-        # Post-residual conv
         out2 = self.conv2(out)
-        
-        # Skip connection from input to post-residual
-        out = out1 + out2
-        
-        # Upsampling
+        out = out1 + out2  # Skip connection
         out = self.upsample_blocks(out)
-        
-        # Final convolution
         out = self.conv3(out)
-        
         return out
-
 
 class DiscriminatoryNetwork(nn.Module):
     def __init__(self, feature_size = 64, alpha = 0.2):

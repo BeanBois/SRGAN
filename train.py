@@ -4,7 +4,41 @@ import os
 import argparse
 import torch.optim as optim
 
+def pretrain_SRResNet(generator, dataloader, num_iterations=1e6):
+    """Pre-train generator with MSE loss before GAN training."""
+    if os.name == 'nt':
+        import torch_directml
+        dml = torch_directml.device()
+        device = dml
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("Phase 1: Pre-training SRResNet with MSE loss...")
+    print(f"Training on device: {device}")
 
+    optimizer = torch.optim.Adam(generator.parameters(), lr=1e-4, betas=(0.9, 0.999))
+    mse_loss = nn.MSELoss()
+    
+    generator.to(device)
+    generator.train()
+    
+    iteration = 0
+    while iteration < num_iterations:
+        for lr_imgs, hr_imgs in dataloader:
+            lr_imgs, hr_imgs = lr_imgs.to(device), hr_imgs.to(device)
+            
+            optimizer.zero_grad()
+            sr_imgs = generator(lr_imgs)
+            loss = mse_loss(sr_imgs, hr_imgs)
+            loss.backward()
+            optimizer.step()
+            
+            iteration += 1
+            if iteration % 1000 == 0:
+                print(f'Pre-train iter {iteration}, MSE: {loss.item():.6f}')
+            if iteration >= num_iterations:
+                break
+    
+    return generator
 
 
 def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
@@ -34,6 +68,7 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
         device = dml
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print("Phase 2: Training SRGAN with perceptual loss...")
     print(f"Training on device: {device}")
     
     generator.to(device)
@@ -43,7 +78,9 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
     # Training mode
     generator.train()
     discriminator.train()
-    
+
+    scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=75, gamma=0.1)
+    scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=75, gamma=0.1)
     for epoch in range(num_epochs):
         epoch_d_loss = 0.0
         epoch_g_loss = 0.0
@@ -105,6 +142,10 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
                       f'D_loss: {d_loss.item():.4f} G_loss: {g_loss.item():.4f} '
                       f'Perceptual: {perceptual_loss.item():.4f} Adversarial: {adversarial_g_loss.item():.4f}')
         
+        # Update learning rates
+        scheduler_G.step()
+        scheduler_D.step()
+        
         # Epoch statistics
         avg_d_loss = epoch_d_loss / len(dataloader)
         avg_g_loss = epoch_g_loss / len(dataloader)
@@ -130,8 +171,8 @@ def save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, ep
     print(f'Checkpoint saved: {filename}')
 
 
-def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, images_per_epoch=91, batch_size = 128, resample_every_n_epochs=1):
-    from src_SRCNN import validate_srcnn, get_epoch_sampler
+def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, images_per_epoch=91, batch_size = 128):
+    from src_SRCNN import validate_srcnn, EpochImageSampler
     # see if its Windows or Linux
     if os.name == 'nt':
         import torch_directml
@@ -141,7 +182,6 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Training on device: {device}")
     print(f'Using {images_per_epoch} images per epoch')
-    print(f'Resampling every {resample_every_n_epochs} epochs')
 
     # Loss function: Mean Squared Error
     criterion = nn.MSELoss()
@@ -167,10 +207,8 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
     # Training loop
     for epoch in range(num_epochs):
         model.train()
-        if (epoch + 1) % resample_every_n_epochs == 0:
-            dataset.resample_patches()
 
-        epoch_sampler = get_epoch_sampler(dataset, images_per_epoch, epoch)
+        epoch_sampler = EpochImageSampler(dataset, images_per_epoch, seed=epoch)
         
         # 🔥 CREATE NEW DATALOADER WITH THIS EPOCH'S SAMPLER
         train_loader = DataLoader(
@@ -180,6 +218,7 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
             num_workers=4,
             pin_memory=True
         )
+
         epoch_loss = 0
         
         for batch_idx, (lr_imgs, hr_imgs) in enumerate(train_loader):
@@ -237,13 +276,13 @@ if __name__ == '__main__':
         n1, n2 = 64, 32
         scale_factor = 3
         patch_size = 33
-        stride = 33
         batch_size = 128
         num_epochs = 100
         images_per_epoch = 91
-        
-        train_dataset = SRDataset('data/train', scale_factor, patch_size, stride)
-        val_dataset = SRDataset('data/valid', scale_factor, patch_size, stride)
+        patches_per_image = 100
+
+        train_dataset = SRDataset('data/train', scale_factor, patch_size, patches_per_image)
+        val_dataset = SRDataset('data/valid', scale_factor, patch_size, patches_per_image)
 
         val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
         
@@ -265,7 +304,7 @@ if __name__ == '__main__':
         
         dataloader = DataLoader(
             training_dataset, 
-            batch_size=16,          
+            batch_size=32,          
             shuffle=True,           
             num_workers=4,          
             pin_memory=True         
@@ -274,4 +313,12 @@ if __name__ == '__main__':
         print(f"Dataset size: {len(training_dataset)}")
         print(f"Number of batches: {len(dataloader)}")
         print(f"Batch size: {dataloader.batch_size}")
-        train_SRGAN(generator, discriminator, dataloader, num_epochs=100)
+        
+        generator = pretrain_SRResNet(
+            generator, 
+            dataloader, 
+            num_iterations=15_000,  # 10^6 as per paper
+        )
+        
+        
+        train_SRGAN(generator, discriminator, dataloader, num_epochs=150)
