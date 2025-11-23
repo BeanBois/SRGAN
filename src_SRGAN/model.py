@@ -11,7 +11,7 @@ class GenerativeNetwork(nn.Module):
         
         # Initial conv: 9x9 kernel as per paper
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels, feature_size, kernel_size=9, padding=4),
+            nn.Conv2d(3, 64, kernel_size=9, padding=4),  # ✅ Input channels=3, output=64, kernel=9
             nn.PReLU()
         )
         
@@ -33,7 +33,7 @@ class GenerativeNetwork(nn.Module):
         )
         
         # Final conv: 9x9 kernel, output 3 channels (RGB)
-        self.conv3 = nn.Conv2d(feature_size, in_channels, kernel_size=9, padding=4)
+        self.conv3 = nn.Conv2d(64, 3, kernel_size=9, padding=4)  # ✅ Input=64, output channels=3, kernel=9
         
     def forward(self, x):
         out1 = self.conv1(x)

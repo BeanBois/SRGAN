@@ -26,41 +26,31 @@ def downscale_image(img, r=4, sigma=None):
 
 
 class ImgDataset(Dataset):
-    def __init__(self, img_dir, hr_size=96, downscale_factor=4):
+    def __init__(self, img_dir, hr_size=96, downscale_factor=4, target_transform=None):
         self.img_dir = img_dir
         self.hr_size = hr_size
         self.downscale_factor = downscale_factor
         
         self.img_files = sorted([f for f in os.listdir(img_dir) 
-                                if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+                                if f.endswith('.png')])
         
-        # HR images normalized to [-1, 1] as per paper
         self.hr_transform = T.Compose([
-            T.RandomCrop(hr_size),  # Random crop for training
-            T.ToTensor(),
-            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Maps to [-1, 1]
+            T.CenterCrop(hr_size),
+            T.ToTensor(),  # [0, 1]
         ])
-        
-        # LR images stay in [0, 1]
-        self.lr_transform = T.ToTensor()
-        
+    
     def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.img_files[idx])
+        img_name = self.img_files[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+        
         hr_image_pil = Image.open(img_path).convert('RGB')
+        hr_image = self.hr_transform(hr_image_pil)  # [0, 1]
         
-        # Random crop first (same crop for both HR and LR)
-        hr_image_pil = T.RandomCrop(self.hr_size)(hr_image_pil)
+        # Scale HR to [-1, 1] as per paper
+        hr_image = hr_image * 2.0 - 1.0  # ✅ [0,1] -> [-1,1]
         
-        # Create LR version
-        lr_size = self.hr_size // self.downscale_factor
-        lr_image_pil = hr_image_pil.filter(
-            ImageFilter.GaussianBlur(radius=self.downscale_factor / 2.0)
-        )
-        lr_image_pil = lr_image_pil.resize((lr_size, lr_size), Image.BICUBIC)
-        
-        # Apply transforms
-        lr_image = T.ToTensor()(lr_image_pil)  # [0, 1]
-        hr_image = T.Normalize([0.5]*3, [0.5]*3)(T.ToTensor()(hr_image_pil))  # [-1, 1]
+        lr_image = downscale_image(hr_image, r=self.downscale_factor)
+        # lr_image is already in [0, 1] from ToTensor in downscale_image
         
         return lr_image, hr_image
 
