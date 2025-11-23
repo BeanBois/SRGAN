@@ -37,6 +37,8 @@ class ImgDataset(Dataset):
         if is_training:
                 self.hr_transform = T.Compose([
                 T.RandomCrop(hr_size),
+                T.RandomHorizontalFlip(p=0.5),  # ✅ Add this
+                T.RandomVerticalFlip(p=0.5),    # ✅ Add this
                 T.ToTensor(),  # [0, 1]
             ])
         else:

@@ -317,8 +317,8 @@ if __name__ == '__main__':
         generator = pretrain_SRResNet(
             generator, 
             dataloader, 
-            num_iterations=15_000,  # 10^6 as per paper
+            num_iterations=10**6,  # 10^6 as per paper
         )
         
         
-        train_SRGAN(generator, discriminator, dataloader, num_epochs=150)
+        train_SRGAN(generator, discriminator, dataloader, num_epochs=8000,save_interval=400) # 200000 // (800//32)
