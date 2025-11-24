@@ -345,7 +345,7 @@ if __name__ == '__main__':
             generator, 
             dataloader, 
             num_iterations=10**6, # 10^6 // (800//16)
-            save_interval=50000
+            save_interval=100000
         )
 
         phase2_iterations = 200_000  # Paper: 2×10^5
