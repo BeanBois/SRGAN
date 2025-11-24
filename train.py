@@ -344,11 +344,14 @@ if __name__ == '__main__':
         generator = pretrain_SRResNet(
             generator, 
             dataloader, 
-            num_iterations=10**6, # 10^6 // (800//16)
-            save_interval=100000
+            num_iterations=10**5, # 10^6 // (800//16)
+            save_interval=10_000
+            # num_iterations=10**6, # 10^6 // (800//16)
+            # save_interval=100000
         )
 
-        phase2_iterations = 200_000  # Paper: 2×10^5
+        phase2_iterations = 20_000  # Paper: 2×10^5
+        # phase2_iterations = 200_000  # Paper: 2×10^5
         phase2_epochs = int(phase2_iterations / len(dataloader))
         
         train_SRGAN(generator, discriminator, dataloader, num_epochs=phase2_epochs  ,save_interval=phase2_epochs//10) # 200000 // (800//16)
