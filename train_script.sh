@@ -7,7 +7,7 @@ WORK_DIR="/vol/bitbucket/kst24/SRGAN"
 CUDA_VERSION="11.8.0"
 ENV_NAME="venv"
 echo "START"
-export PENV=/vol/bitbucket/${USER}/${ENV_NAME}
+export PENV=/vol/bitbucket/${USER}/SRGAN/${ENV_NAME}
 
 export PATH=/vol/bitbucket/kst24/fyp/my_icl_agent_duchess/:$PATH
 source "/vol/cuda/${CUDA_VERSION}/setup.sh"
@@ -24,4 +24,4 @@ export CUDA_VISIBLE_DEVICES=0
 source $PENV/bin/activate
 pip install -r "${WORK_DIR}/requirements.txt"
 
-python3 -u "${WORK_DIR}/train.py"
+python3 -u "${WORK_DIR}/train.py" --model SRGAN
