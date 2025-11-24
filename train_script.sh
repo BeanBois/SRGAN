@@ -5,9 +5,9 @@
 
 WORK_DIR="/vol/bitbucket/kst24/SRGAN"
 CUDA_VERSION="11.8.0"
-ENV_NAME="venv"
+ENV_NAME="myenv"
 echo "START"
-export PENV=/vol/bitbucket/${USER}/SRGAN/${ENV_NAME}
+export PENV=/vol/bitbucket/${USER}/${ENV_NAME}
 
 export PATH=/vol/bitbucket/kst24/fyp/my_icl_agent_duchess/:$PATH
 source "/vol/cuda/${CUDA_VERSION}/setup.sh"
