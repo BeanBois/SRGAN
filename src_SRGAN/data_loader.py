@@ -24,6 +24,39 @@ def downscale_image(img, r=4, sigma=None):
     to_tensor = T.ToTensor()
     return to_tensor(downsampled)  # Returns [0, 1]
 
+class WholeImageDataset(Dataset):
+    """Dataset that loads whole images without cropping for evaluation."""
+    def __init__(self, img_dir, downscale_factor=4):
+        self.img_dir = img_dir
+        self.downscale_factor = downscale_factor
+        
+        self.img_files = sorted([f for f in os.listdir(img_dir) 
+                                if f.endswith(('.png', '.jpg', '.jpeg'))])
+    
+    def __len__(self):
+        return len(self.img_files)
+    
+    def __getitem__(self, idx):
+        # Import here to avoid circular imports
+        import sys
+        sys.path.insert(0, '/mnt/user-data/uploads')
+        
+        img_name = self.img_files[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+        
+        # Load image
+        hr_image_pil = Image.open(img_path).convert('RGB')
+        
+        # Convert to tensor [0, 1]
+        hr_image = T.ToTensor()(hr_image_pil)
+        
+        # Scale HR to [-1, 1] to match training
+        hr_image = hr_image * 2.0 - 1.0
+        
+        # Create LR image
+        lr_image = downscale_image(hr_image, r=self.downscale_factor)
+        
+        return lr_image, hr_image, img_name
 
 class ImgDataset(Dataset):
     def __init__(self, img_dir, hr_size=96, downscale_factor=4, 
