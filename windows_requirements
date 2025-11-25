@@ -1,7 +1,7 @@
 # for windows since its a little bitch maintained by little suckers a
 # === Core Deep Learning Stack (DirectML) ===
+torch==2.4.1                         # Required base version for torch-directml
 torch-directml==0.2.5.dev240914      # Compatible with PyTorch 2.3.1
-torch                         # Required base version for torch-directml
 torchvision                 # Matches torch 2.3.x builds
 
 # === Core Scientific Libraries ===

@@ -10,6 +10,9 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=1
         import torch_directml
         dml = torch_directml.device()
         device = dml
+        # for module in generator.modules():
+        #     if isinstance(module, nn.BatchNorm2d):
+        #         module.eval()
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -37,7 +40,11 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=1
             optimizer.step()
             
             iteration += 1
-            
+            # debug
+            if iteration % 100:
+                if torch.isnan(loss):
+                    print('Nan detected!')
+
             if iteration % 1000 == 0:
                 print(f'Pre-train iteration {iteration:,}/{int(num_iterations):,}, MSE: {loss.item():.6f}')
             
@@ -83,11 +90,16 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
     adversarial_loss = nn.BCELoss()
     content_loss = VGGLoss(feature_layer=36)  
     
+    generator.train()
+    discriminator.train()
     # see if its Windows or Linux
     if os.name == 'nt':
         import torch_directml
         dml = torch_directml.device()
         device = dml
+        # for module in generator.modules():
+        #     if isinstance(module, nn.BatchNorm2d):
+        #         module.eval()
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -102,9 +114,7 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
     discriminator.to(device)
     content_loss.to(device)  # Move VGG to device too
     
-    # Training mode
-    generator.train()
-    discriminator.train()
+
 
     scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=num_epochs//2, gamma=0.1)
     scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=num_epochs//2, gamma=0.1)
@@ -350,8 +360,7 @@ if __name__ == '__main__':
             # save_interval=100000
         )
 
-        phase2_iterations = 20_000  # Paper: 2×10^5
-        # phase2_iterations = 200_000  # Paper: 2×10^5
+        phase2_iterations = 200_000  # Paper: 2×10^5
         phase2_epochs = int(phase2_iterations / len(dataloader))
         
         train_SRGAN(generator, discriminator, dataloader, num_epochs=phase2_epochs  ,save_interval=phase2_epochs//10) # 200000 // (800//16)

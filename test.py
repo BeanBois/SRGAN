@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
+      
 # Import the components (simplified versions for testing)
 class ResidualBlock(nn.Module):
     def __init__(self, channels=64):
@@ -175,7 +175,9 @@ def test_directml_backprop():
     
     # Try to use DirectML if available, otherwise use CPU
     try:
-        device = torch.device("dml")
+        import torch_directml
+        dml = torch_directml.device()
+        device = dml
         print(f"\n✓ Using DirectML device")
     except:
         try:
@@ -366,7 +368,7 @@ def validate_with_cpu():
     """Main test function for DirectML backward propagation"""
     
     print("="*60)
-    print("DirectML Backward Propagation Test")
+    print("USING CPU")
     print("="*60)
     
     # Try to use DirectML if available, otherwise use CPU
@@ -547,9 +549,7 @@ def validate_with_cpu():
     print(f"✓ Device: {device}")
     print(f"✓ Generator trainable parameters: {sum(p.numel() for p in generator.parameters() if p.requires_grad):,}")
     print(f"✓ Discriminator trainable parameters: {sum(p.numel() for p in discriminator.parameters() if p.requires_grad):,}")
-    print("\nIf you see gradients computed with reasonable values (not NaN/Inf),")
-    print("then DirectML backward propagation is working correctly!")
 
 if __name__ == "__main__":
-    # test_directml_backprop()
+    test_directml_backprop()
     validate_with_cpu()
