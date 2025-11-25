@@ -26,6 +26,8 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=1
     mse_loss = nn.MSELoss()
     
     generator.to(device)
+    print(f"Generator dtype: {next(generator.parameters()).dtype}")
+    print(f"Generator device: {next(generator.parameters()).device}")
     generator.train()
     
     iteration = 0
@@ -68,7 +70,6 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=1
     print(f'Final pre-trained model saved: {final_save_path}')
     
     return generator
-
 
 def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
     from src_SRGAN import VGGLoss
@@ -301,6 +302,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Script to allow choosing of model type")
     parser.add_argument("--model", help="the model you want to train")
+    parser.add_argument("--pretrained_model", help="the pretrainmodel file location", default=None)
 
     args = parser.parse_args()
     if args.model == 'SRCNN':
@@ -351,16 +353,20 @@ if __name__ == '__main__':
         print(f"Number of batches: {len(dataloader)}")
         print(f"Batch size: {dataloader.batch_size}")
         
-        generator = pretrain_SRResNet(
-            generator, 
-            dataloader, 
-            num_iterations=10**5, # 10^6 // (800//16)
-            save_interval=10_000
-            # num_iterations=10**6, # 10^6 // (800//16)
-            # save_interval=100000
-        )
+        if args.pretrained_model is None: 
+            generator = pretrain_SRResNet(
+                generator, 
+                dataloader, 
+                num_iterations=15000, # 10^6 // (800//16)
+                save_interval=1000
+            )
+        else: 
+            file = f"model_checkpoints/SRGAN/{args.pretrained_model}"
+            state_dict = torch.load(file)
+            generator.load_state_dict(state_dict)
 
-        phase2_iterations = 200_000  # Paper: 2×10^5
+        # phase2_iterations = 200_000  # Paper: 2×10^5
+        phase2_iterations = 20000  # Paper: 2×10^5
         phase2_epochs = int(phase2_iterations / len(dataloader))
         
-        train_SRGAN(generator, discriminator, dataloader, num_epochs=phase2_epochs  ,save_interval=phase2_epochs//10) # 200000 // (800//16)
+        train_SRGAN(generator, discriminator, dataloader, num_epochs=phase2_epochs  ,save_interval=max(phase2_epochs//10,1)) # 200000 // (800//16)
