@@ -52,29 +52,41 @@ class ImgDataset(Dataset):
     
     def __len__(self):
         # ✅ Multiply by patches_per_image
-        return len(self.img_files) * self.patches_per_image
+        if self.is_training:
+            return len(self.img_files) * self.patches_per_image
+        else:
+            return len(self.img_files)
     
     def __getitem__(self, idx):
         # ✅ Map virtual idx to actual image file
-        actual_img_idx = idx // self.patches_per_image
-        img_name = self.img_files[actual_img_idx]
-        img_path = os.path.join(self.img_dir, img_name)
-        
-        hr_image_pil = Image.open(img_path).convert('RGB')
-        
-        # Check if image is large enough
-        if hr_image_pil.width < self.hr_size or hr_image_pil.height < self.hr_size:
-            # Resize if too small
-            new_size = (max(hr_image_pil.width, self.hr_size + 10), 
-                       max(hr_image_pil.height, self.hr_size + 10))
-            hr_image_pil = hr_image_pil.resize(new_size, Image.BICUBIC)
-        
-        hr_image = self.hr_transform(hr_image_pil)  # [0, 1]
-        
-        # Scale HR to [-1, 1] as per paper
-        hr_image = hr_image * 2.0 - 1.0  # [0,1] -> [-1,1]
-        
-        lr_image = downscale_image(hr_image, r=self.downscale_factor)
-        # lr_image is in [0, 1]
-        
-        return lr_image, hr_image
+        if self.is_training:
+            actual_img_idx = idx // self.patches_per_image
+            img_name = self.img_files[actual_img_idx]
+            img_path = os.path.join(self.img_dir, img_name)
+            
+            hr_image_pil = Image.open(img_path).convert('RGB')
+            
+            # Check if image is large enough
+            if hr_image_pil.width < self.hr_size or hr_image_pil.height < self.hr_size:
+                # Resize if too small
+                new_size = (max(hr_image_pil.width, self.hr_size + 10), 
+                        max(hr_image_pil.height, self.hr_size + 10))
+                hr_image_pil = hr_image_pil.resize(new_size, Image.BICUBIC)
+            
+            hr_image = self.hr_transform(hr_image_pil)  # [0, 1]
+            
+            # Scale HR to [-1, 1] as per paper
+            hr_image = hr_image * 2.0 - 1.0  # [0,1] -> [-1,1]
+            
+            lr_image = downscale_image(hr_image, r=self.downscale_factor)
+            # lr_image is in [0, 1]
+            
+            return lr_image, hr_image
+        else:
+            img_name = self.img_files[idx]
+            img_path = os.path.join(self.img_dir, img_name)
+            hr_image_pil = Image.open(img_path).convert('RGB')
+            hr_image = self.hr_transform(hr_image_pil)  # [0, 1]
+            lr_image = downscale_image(hr_image, r= self.downscale_factor)
+            return lr_image, hr_image
+
