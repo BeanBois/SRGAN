@@ -356,16 +356,16 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Script to allow choosing of model type")
     parser.add_argument("--model", help="the model you want to train", default="SRGAN")
-    parser.add_argument("--checkpoint", type=str, required=True,
-                        help="Path to generator checkpoint (.pth file)")
+    # parser.add_argument("--checkpoint", type=str, required=True,
+    #                     help="Path to generator checkpoint (.pth file)")
     parser.add_argument("--val_dir", type=str, default='data/valid',
                         help="Path to validation dataset directory")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="Batch size for evaluation")
     parser.add_argument("--num_images", type=int, default=10,
                         help="Number of comparison images to save")
-    parser.add_argument("--output_dir", type=str, default='evaluation_results',
-                        help="Directory to save evaluation results")
+    # parser.add_argument("--output_dir", type=str, default='evaluation_results',
+    #                     help="Directory to save evaluation results")
     parser.add_argument("--hr_size", type=int, default=1000,
                         help="High-resolution image size")
     parser.add_argument("--downscale_factor", type=int, default=4,
@@ -406,16 +406,25 @@ if __name__ == '__main__':
         
         print(f"\nValidation set size: {len(val_dataset)} images")
         print(f"Number of batches: {len(val_loader)}")
-        
-        # Run evaluation
         results = evaluate_SRGAN(
             generator=generator,
             val_loader=val_loader,
             device=device,
-            checkpoint_path=args.checkpoint,
+            checkpoint_path="model_checkpoints/SRGAN/SRResNet_pretrained_final.pth",
             save_images=True,
             num_images_to_save=args.num_images,
-            output_dir=args.output_dir
+            output_dir="outputs_pre_gan"
         )
+        for i in range(2,9):
+        # Run evaluation
+            results = evaluate_SRGAN(
+                generator=generator,
+                val_loader=val_loader,
+                device=device,
+                checkpoint_path=f"model_checkpoints/SRGAN/checkpoint_epoch_{i}.pth",
+                save_images=True,
+                num_images_to_save=args.num_images,
+                output_dir=f"outputs_epoch_{i}"
+            )
         
         print("\nEvaluation complete!")
