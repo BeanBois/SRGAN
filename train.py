@@ -4,15 +4,15 @@ import os
 import argparse
 import torch.optim as optim
 
-def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=10000):
-    """Pre-train generator with MSE loss before GAN training."""
+def pretrain_SRResNet(generator, dataloader, num_iterations=1_000_000, save_interval=10000):
+    """
+    Pre-train generator with MSE loss before GAN training.
+    Paper: 10^6 iterations with lr=1e-4
+    """
     if os.name == 'nt':
         import torch_directml
         dml = torch_directml.device()
         device = dml
-        # for module in generator.modules():
-        #     if isinstance(module, nn.BatchNorm2d):
-        #         module.eval()
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -21,86 +21,90 @@ def pretrain_SRResNet(generator, dataloader, num_iterations=1e6, save_interval=1
     print("="*60)
     print(f"Training on device: {device}")
     print(f"Target iterations: {int(num_iterations):,}")
+    print(f"Images per epoch: {len(dataloader.dataset):,}")
+    print(f"Batch size: {dataloader.batch_size}")
+    print(f"Iterations per epoch: {len(dataloader):,}")
+    print(f"Expected epochs: {int(num_iterations / len(dataloader))}")
 
     optimizer = torch.optim.Adam(generator.parameters(), lr=1e-4, betas=(0.9, 0.999))
     mse_loss = nn.MSELoss()
     
     generator.to(device)
-    print(f"Generator dtype: {next(generator.parameters()).dtype}")
-    print(f"Generator device: {next(generator.parameters()).device}")
     generator.train()
     
     iteration = 0
+    epoch = 0
+    
     while iteration < num_iterations:
+        epoch += 1
+        epoch_loss = 0.0
+        num_batches = 0
+        
         for lr_imgs, hr_imgs in dataloader:
             lr_imgs, hr_imgs = lr_imgs.to(device), hr_imgs.to(device)
             
             optimizer.zero_grad()
             sr_imgs = generator(lr_imgs)
+            
+            # MSE loss on [-1, 1] range as per paper
             loss = mse_loss(sr_imgs, hr_imgs)
             loss.backward()
             optimizer.step()
             
             iteration += 1
-            # debug
-            if iteration % 100:
-                if torch.isnan(loss):
-                    print('Nan detected!')
-
-            if iteration % 1000 == 0:
-                print(f'Pre-train iteration {iteration:,}/{int(num_iterations):,}, MSE: {loss.item():.6f}')
+            epoch_loss += loss.item()
+            num_batches += 1
             
-            # ✅ Save checkpoints during pre-training
+            # Check for NaN
+            if torch.isnan(loss):
+                print(f'⚠️  NaN detected at iteration {iteration}!')
+                return None
+
+            # Progress logging
+            if iteration % 1000 == 0:
+                print(f'[Pre-train] Iter {iteration:,}/{int(num_iterations):,} '
+                      f'(Epoch {epoch}) MSE: {loss.item():.6f}')
+            
+            # Save checkpoints
             if iteration % save_interval == 0:
                 os.makedirs('model_checkpoints/SRGAN', exist_ok=True)
                 save_path = f'model_checkpoints/SRGAN/SRResNet_pretrain_iter_{iteration}.pth'
                 torch.save(generator.state_dict(), save_path)
-                print(f'Checkpoint saved: {save_path}')
+                print(f'✅ Checkpoint saved: {save_path}')
             
             if iteration >= num_iterations:
                 break
         
+        # Epoch summary
+        avg_epoch_loss = epoch_loss / num_batches
+        print(f'==> Epoch {epoch} completed: Avg MSE = {avg_epoch_loss:.6f}')
+        
         if iteration >= num_iterations:
             break
     
-    # ✅ Save final pre-trained model
+    # Save final pre-trained model
     os.makedirs('model_checkpoints/SRGAN', exist_ok=True)
     final_save_path = 'model_checkpoints/SRGAN/SRResNet_pretrained_final.pth'
     torch.save(generator.state_dict(), final_save_path)
-    print(f'Final pre-trained model saved: {final_save_path}')
+    print(f'✅ Final pre-trained model saved: {final_save_path}')
     
     return generator
 
-def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_interval=10):
-    from src_SRGAN import VGGLoss
+def train_SRGAN(generator, discriminator, dataloader, num_iterations=200_000, 
+                lr_phase1=1e-4, lr_phase2=1e-5, phase1_iters=100_000, save_interval=10000):
     """
-    Train SRGAN with proper batch handling.
-    
-    Args:
-        generator: Generator network
-        discriminator: Discriminator network
-        dataloader: DataLoader with batched data
-        num_epochs: Number of training epochs
-        save_interval: Save checkpoint every N epochs
+    Train SRGAN with perceptual loss.
+    Paper: 
+    - 10^5 iterations at lr=1e-4
+    - 10^5 iterations at lr=1e-5
+    - Total: 2×10^5 iterations
     """
-    # Optimizers
-    optimizer_G = torch.optim.Adam(generator.parameters(), lr=1e-4, betas=(0.9, 0.999))
-    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=1e-4, betas=(0.9, 0.999))
+    from src import VGGLoss
     
-    # Loss functions
-    adversarial_loss = nn.BCELoss()
-    content_loss = VGGLoss(feature_layer=36)  
-    
-    generator.train()
-    discriminator.train()
-    # see if its Windows or Linux
     if os.name == 'nt':
         import torch_directml
         dml = torch_directml.device()
         device = dml
-        # for module in generator.modules():
-        #     if isinstance(module, nn.BatchNorm2d):
-        #         module.eval()
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -108,131 +112,160 @@ def train_SRGAN(generator, discriminator, dataloader, num_epochs=100, save_inter
     print("Phase 2: Training SRGAN with perceptual loss")
     print("="*60)
     print(f"Training on device: {device}")
-    print(f"Total epochs: {num_epochs}")
-
+    print(f"Total iterations: {num_iterations:,}")
+    print(f"Phase 1: {phase1_iters:,} iters at lr={lr_phase1}")
+    print(f"Phase 2: {num_iterations - phase1_iters:,} iters at lr={lr_phase2}")
+    print(f"Iterations per epoch: {len(dataloader):,}")
+    
+    # Optimizers
+    optimizer_G = torch.optim.Adam(generator.parameters(), lr=lr_phase1, betas=(0.9, 0.999))
+    optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=lr_phase1, betas=(0.9, 0.999))
+    
+    # Loss functions
+    adversarial_loss = nn.BCELoss()
+    content_loss = VGGLoss(feature_layer=36)  # VGG5.4 = layer 36
     
     generator.to(device)
     discriminator.to(device)
-    content_loss.to(device)  # Move VGG to device too
+    content_loss.to(device)
     
-
-
-    scheduler_G = optim.lr_scheduler.StepLR(optimizer_G, step_size=num_epochs//2, gamma=0.1)
-    scheduler_D = optim.lr_scheduler.StepLR(optimizer_D, step_size=num_epochs//2, gamma=0.1)
-    for epoch in range(num_epochs):
+    generator.train()
+    discriminator.train()
+    
+    iteration = 0
+    epoch = 0
+    
+    while iteration < num_iterations:
+        epoch += 1
         epoch_d_loss = 0.0
         epoch_g_loss = 0.0
+        num_batches = 0
         
-        for i, (lr_imgs, hr_imgs) in enumerate(dataloader):
+        for lr_imgs, hr_imgs in dataloader:
             # Move batch to device
             lr_imgs = lr_imgs.to(device)
             hr_imgs = hr_imgs.to(device)
             
-            # Get actual batch size (last batch might be smaller)
             batch_size = lr_imgs.size(0)
             
-            # Real and fake labels for this batch
+            # Real and fake labels
             real_labels = torch.ones(batch_size, 1).to(device)
             fake_labels = torch.zeros(batch_size, 1).to(device)
             
-            #  Train Discriminator
+            # ===== Train Discriminator =====
             optimizer_D.zero_grad()
             
-            # Real images - discriminator should output ~1
+            # Real images
             real_output = discriminator(hr_imgs)
             d_loss_real = adversarial_loss(real_output, real_labels)
             
-            # Fake images - discriminator should output ~0
+            # Fake images
             sr_imgs = generator(lr_imgs)
-            fake_output = discriminator(sr_imgs.detach())  # detach to not backprop through generator
+            fake_output = discriminator(sr_imgs.detach())
             d_loss_fake = adversarial_loss(fake_output, fake_labels)
             
-            # Total discriminator loss
             d_loss = d_loss_real + d_loss_fake
             d_loss.backward()
             optimizer_D.step()
             
-            #  Train Generator
+            # ===== Train Generator =====
             optimizer_G.zero_grad()
             
-            # Generate SR images 
             sr_imgs = generator(lr_imgs)
             
-            # Adversarial loss 
+            # Adversarial loss (weighted by 1e-3 as per paper)
             gen_output = discriminator(sr_imgs)
             adversarial_g_loss = adversarial_loss(gen_output, real_labels)
             
-            # Content loss 
+            # Content loss (VGG perceptual loss)
             perceptual_loss = content_loss(sr_imgs, hr_imgs)
             
-            # Total generator loss 
+            # Total generator loss (Equation 3 in paper)
             g_loss = perceptual_loss + 1e-3 * adversarial_g_loss
             g_loss.backward()
             optimizer_G.step()
             
-            # Accumulate losses
+            iteration += 1
             epoch_d_loss += d_loss.item()
             epoch_g_loss += g_loss.item()
+            num_batches += 1
             
-            # Print progress
-            if i % 100 == 0:
-                print(f'Epoch [{epoch+1}/{num_epochs}] Batch [{i}/{len(dataloader)}] '
+            # Learning rate schedule: switch to lower lr after phase1_iters
+            if iteration == phase1_iters:
+                print(f"\n🔄 Switching learning rate: {lr_phase1} -> {lr_phase2}\n")
+                for param_group in optimizer_G.param_groups:
+                    param_group['lr'] = lr_phase2
+                for param_group in optimizer_D.param_groups:
+                    param_group['lr'] = lr_phase2
+            
+            # Progress logging
+            if iteration % 1000 == 0:
+                print(f'[SRGAN] Iter {iteration:,}/{num_iterations:,} '
                       f'D_loss: {d_loss.item():.4f} G_loss: {g_loss.item():.4f} '
-                      f'Perceptual: {perceptual_loss.item():.4f} Adversarial: {adversarial_g_loss.item():.4f}')
+                      f'Percep: {perceptual_loss.item():.4f} Adv: {adversarial_g_loss.item():.4f}')
+            
+            # Save checkpoints
+            if iteration % save_interval == 0:
+                save_checkpoint_SRGAN(
+                    generator, discriminator, optimizer_G, optimizer_D,
+                    iteration, f'checkpoint_iter_{iteration}.pth'
+                )
+            
+            if iteration >= num_iterations:
+                break
         
-        # Update learning rates
-        scheduler_G.step()
-        scheduler_D.step()
+        # Epoch summary
+        avg_d_loss = epoch_d_loss / num_batches
+        avg_g_loss = epoch_g_loss / num_batches
+        print(f'==> Epoch {epoch}: Avg D_loss={avg_d_loss:.4f}, Avg G_loss={avg_g_loss:.4f}')
         
-        # Epoch statistics
-        avg_d_loss = epoch_d_loss / len(dataloader)
-        avg_g_loss = epoch_g_loss / len(dataloader)
-        print(f'\n==> Epoch [{epoch+1}/{num_epochs}] '
-              f'Avg D_loss: {avg_d_loss:.4f} Avg G_loss: {avg_g_loss:.4f}\n')
-        
-        # Save checkpoint
-        if (epoch + 1) % save_interval == 0:
-            save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, 
-                          epoch, f'checkpoint_epoch_{epoch+1}.pth')
+        if iteration >= num_iterations:
+            break
+    
+    # Save final model
+    save_checkpoint_SRGAN(
+        generator, discriminator, optimizer_G, optimizer_D,
+        iteration, 'SRGAN_final.pth'
+    )
+    print(f'✅ Final SRGAN model saved')
 
-def save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, epoch, filename):
+def save_checkpoint_SRGAN(generator, discriminator, optimizer_G, optimizer_D, iteration, filename):
     checkpoint = {
-        'epoch': epoch,
+        'iteration': iteration,
         'generator_state_dict': generator.state_dict(),
         'discriminator_state_dict': discriminator.state_dict(),
         'optimizer_G_state_dict': optimizer_G.state_dict(),
         'optimizer_D_state_dict': optimizer_D.state_dict(),
     }
-    os.makedirs('model_checkpoints', exist_ok=True)
-    filename = os.path.join('model_checkpoints', 'SRGAN' , filename)
-    torch.save(checkpoint, filename)
-    print(f'Checkpoint saved: {filename}')
+    os.makedirs('model_checkpoints/SRGAN', exist_ok=True)
+    filepath = os.path.join('model_checkpoints', 'SRGAN', filename)
+    torch.save(checkpoint, filepath)
+    print(f'💾 Checkpoint saved: {filepath}')
 
 
-def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, images_per_epoch=91, batch_size = 128):
+def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval=10, 
+                images_per_epoch=91, batch_size=128):
     from src_SRCNN import validate_srcnn, EpochImageSampler
-    # see if its Windows or Linux
+    from torch.utils.data import DataLoader
+    
     if os.name == 'nt':
         import torch_directml
         dml = torch_directml.device()
         device = dml
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     print(f"Training on device: {device}")
     print(f'Using {images_per_epoch} images per epoch')
 
-    # Loss function: Mean Squared Error
     criterion = nn.MSELoss()
     
-    # Optimizer: SGD with momentum
-    # Different learning rates for different layers (as per paper)
     optimizer = optim.SGD([
         {'params': model.conv1.parameters(), 'lr': 1e-4},
         {'params': model.conv2.parameters(), 'lr': 1e-4},
-        {'params': model.conv3.parameters(), 'lr': 1e-5}  # Smaller lr for last layer
+        {'params': model.conv3.parameters(), 'lr': 1e-5}
     ], momentum=0.9)
     
-    # Initialize weights
     def weights_init(m):
         if isinstance(m, nn.Conv2d):
             nn.init.normal_(m.weight, mean=0.0, std=0.001)
@@ -242,17 +275,14 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
     model.apply(weights_init)
     model.to(device)
     
-    # Training loop
     for epoch in range(num_epochs):
         model.train()
-
         epoch_sampler = EpochImageSampler(dataset, images_per_epoch, seed=epoch)
         
-        # 🔥 CREATE NEW DATALOADER WITH THIS EPOCH'S SAMPLER
         train_loader = DataLoader(
             dataset,
             batch_size=batch_size,
-            sampler=epoch_sampler,  # Use sampler instead of shuffle
+            sampler=epoch_sampler,
             num_workers=4,
             pin_memory=True
         )
@@ -263,14 +293,9 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
             lr_imgs = lr_imgs.to(device)
             hr_imgs = hr_imgs.to(device)
             
-            # Forward pass
             optimizer.zero_grad()
             outputs = model(lr_imgs)
-            
-            # Compute loss
             loss = criterion(outputs, hr_imgs)
-            
-            # Backward pass
             loss.backward()
             optimizer.step()
             
@@ -284,89 +309,99 @@ def train_SRCNN(model, dataset, val_loader, num_epochs=100, save_interval = 10, 
         avg_loss = epoch_loss / len(train_loader)
         print(f'Epoch [{epoch+1}/{num_epochs}] Average Loss: {avg_loss:.6f}')
         
-        # Validate every few epochs
         if (epoch + 1) % 5 == 0:
             validate_srcnn(model, val_loader, device)
-        # save model every few epochs 
-
+        
         if (epoch + 1) % save_interval == 0:
+            os.makedirs('model_checkpoints/SRCNN', exist_ok=True)
             filename = f'checkpoint_epoch_{epoch+1}.pth'
-            filename = os.path.join('model_checkpoints', 'SRCNN' , filename)
-            torch.save(model.state_dict(), filename)
+            filepath = os.path.join('model_checkpoints', 'SRCNN', filename)
+            torch.save(model.state_dict(), filepath)
     
     return model
 
 
 if __name__ == '__main__':
     from torch.utils.data import DataLoader
-
-    parser = argparse.ArgumentParser(description="Script to allow choosing of model type")
-    parser.add_argument("--model", help="the model you want to train")
-    parser.add_argument("--pretrained_model", help="the pretrainmodel file location", default=None)
-
+    from src import GenerativeNetwork, DiscriminatoryNetwork
+    from src.data_loader import ImgDataset  
+    
+    parser = argparse.ArgumentParser(description="Train SRGAN following the paper")
+    parser.add_argument("--pretrained_model", help="Path to pretrained SRResNet model", default=None)
+    parser.add_argument("--data_dir", help="Training data directory", default='data/train')
+    parser.add_argument("--batch_size", type=int, default=16, help="Mini-batch size (paper uses 16)")
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of data loading workers")
+    
     args = parser.parse_args()
-    if args.model == 'SRCNN':
-        print('Training SRCNN')
-
-        from src_SRCNN import SRDataset, SRCNN
-
-        num_channels = 1  # Y channel only
-        f1, f2, f3 = 9, 5, 5
-        n1, n2 = 64, 32
-        scale_factor = 3
-        patch_size = 33
-        batch_size = 128
-        num_epochs = 100
-        images_per_epoch = 91
-        patches_per_image = 100
-
-        train_dataset = SRDataset('data/train', scale_factor, patch_size, patches_per_image)
-        val_dataset = SRDataset('data/valid', scale_factor, patch_size, patches_per_image)
-
-        val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
-        
-        # Initialize model
-        model = SRCNN(num_channels, f1, f2, f3, n1, n2)
-        
-        # Train
-        model = train_SRCNN(model, train_dataset, val_loader, num_epochs, images_per_epoch=91, batch_size=batch_size)
-        
-    else:
-        print('Training SRGAN')
-
-        from src_SRGAN import GenerativeNetwork, DiscriminatoryNetwork, ImgDataset
-        
-        generator = GenerativeNetwork()
-        discriminator = DiscriminatoryNetwork()
-        
-        training_dataset = ImgDataset('data/train', downscale_factor=4, patches_per_image=20, is_training=True)
-        
-        dataloader = DataLoader(
-            training_dataset, 
-            batch_size=16,          
-            shuffle=True,           
-            num_workers=4,          
-            pin_memory=True         
+    
+    print('='*60)
+    print('Training SRGAN following paper specifications')
+    print('='*60)
+    
+    # Initialize networks
+    generator = GenerativeNetwork()
+    discriminator = DiscriminatoryNetwork()
+    
+    # Create dataset (ONE patch per image, different images per batch)
+    training_dataset = ImgDataset(
+        args.data_dir,
+        hr_size=96,
+        downscale_factor=4,
+        is_training=True
+    )
+    
+    # DataLoader with batch_size=16 as per paper
+    dataloader = DataLoader(
+        training_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,  # Shuffle to get different images each batch
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=True  # Drop last incomplete batch for consistent training
+    )
+    
+    print(f"\nDataset Configuration:")
+    print(f"  Total images: {len(training_dataset):,}")
+    print(f"  Batch size: {dataloader.batch_size}")
+    print(f"  Batches per epoch: {len(dataloader):,}")
+    print(f"  Patches per batch: {args.batch_size} (from {args.batch_size} DISTINCT images)")
+    
+    # Phase 1: Pre-train SRResNet with MSE (10^6 iterations)
+    if args.pretrained_model is None:
+        print("\n" + "="*60)
+        print("Starting Phase 1: Pre-training SRResNet")
+        print("="*60)
+        generator = pretrain_SRResNet(
+            generator,
+            dataloader,
+            num_iterations=1_000_000,  # 10^6 as per paper
+            save_interval=10_000
         )
         
-        print(f"Dataset size: {len(training_dataset)}")
-        print(f"Number of batches: {len(dataloader)}")
-        print(f"Batch size: {dataloader.batch_size}")
-        
-        if args.pretrained_model is None: 
-            generator = pretrain_SRResNet(
-                generator, 
-                dataloader, 
-                num_iterations=15000, # 10^6 // (800//16)
-                save_interval=1000
-            )
-        else: 
-            file = f"model_checkpoints/SRGAN/{args.pretrained_model}"
-            state_dict = torch.load(file)
-            generator.load_state_dict(state_dict)
-
-        # phase2_iterations = 200_000  # Paper: 2×10^5
-        phase2_iterations = 20000  # Paper: 2×10^5
-        phase2_epochs = int(phase2_iterations / len(dataloader))
-        
-        train_SRGAN(generator, discriminator, dataloader, num_epochs=phase2_epochs  ,save_interval=max(phase2_epochs//10,1)) # 200000 // (800//16)
+        if generator is None:
+            print("❌ Pre-training failed due to NaN. Exiting.")
+            exit(1)
+    else:
+        print(f"\n✅ Loading pre-trained model: {args.pretrained_model}")
+        state_dict = torch.load(args.pretrained_model)
+        generator.load_state_dict(state_dict)
+    
+    # Phase 2: Train SRGAN with perceptual loss (2×10^5 iterations)
+    print("\n" + "="*60)
+    print("Starting Phase 2: Training SRGAN")
+    print("="*60)
+    
+    train_SRGAN(
+        generator,
+        discriminator,
+        dataloader,
+        num_iterations=200_000,  # 2×10^5 as per paper
+        lr_phase1=1e-4,          # First 10^5 iterations
+        lr_phase2=1e-5,          # Second 10^5 iterations
+        phase1_iters=100_000,
+        save_interval=10_000
+    )
+    
+    print("\n" + "="*60)
+    print("✅ Training completed successfully!")
+    print("="*60)

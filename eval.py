@@ -276,86 +276,12 @@ def evaluate_SRGAN(generator, val_loader, device, checkpoint_path,
     
     return results
 
-# SRCNN evaluation function
-def eval_SRCNN(model, image_path, scale_factor=3, device='cuda'):
-    """
-    Super-resolve a single image
-    """
-    model.eval()
-    
-    # Read image
-    img = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    img_ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
-    
-    # Extract Y channel
-    y_channel = img_ycrcb[:, :, 0]
-    
-    # Downsample and upsample (bicubic interpolation)
-    h, w = y_channel.shape
-    lr_size = (w // scale_factor, h // scale_factor)
-    y_lr = cv2.resize(y_channel, lr_size, interpolation=cv2.INTER_CUBIC)
-    y_bicubic = cv2.resize(y_lr, (w, h), interpolation=cv2.INTER_CUBIC)
-    
-    # Normalize and convert to tensor
-    y_input = y_bicubic.astype(np.float32) / 255.0
-    y_input = torch.from_numpy(y_input).unsqueeze(0).unsqueeze(0).to(device)
-    
-    # Super-resolve
-    with torch.no_grad():
-        y_sr = model(y_input)
-    
-    # Convert back to numpy
-    y_sr = y_sr.squeeze().cpu().numpy()
-    y_sr = np.clip(y_sr * 255.0, 0, 255).astype(np.uint8)
-    
-    # Reconstruct RGB image
-    img_ycrcb[:, :, 0] = y_sr
-    img_sr = cv2.cvtColor(img_ycrcb, cv2.COLOR_YCrCb2BGR)
-    
-    return img_sr, y_bicubic, y_sr
-# SRCNN evaluation function
-def eval_SRCNN(model, image_path, scale_factor=3, device='cuda'):
-    """
-    Super-resolve a single image
-    """
-    model.eval()
-    
-    # Read image
-    img = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    img_ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
-    
-    # Extract Y channel
-    y_channel = img_ycrcb[:, :, 0]
-    
-    # Downsample and upsample (bicubic interpolation)
-    h, w = y_channel.shape
-    lr_size = (w // scale_factor, h // scale_factor)
-    y_lr = cv2.resize(y_channel, lr_size, interpolation=cv2.INTER_CUBIC)
-    y_bicubic = cv2.resize(y_lr, (w, h), interpolation=cv2.INTER_CUBIC)
-    
-    # Normalize and convert to tensor
-    y_input = y_bicubic.astype(np.float32) / 255.0
-    y_input = torch.from_numpy(y_input).unsqueeze(0).unsqueeze(0).to(device)
-    
-    # Super-resolve
-    with torch.no_grad():
-        y_sr = model(y_input)
-    
-    # Convert back to numpy
-    y_sr = y_sr.squeeze().cpu().numpy()
-    y_sr = np.clip(y_sr * 255.0, 0, 255).astype(np.uint8)
-    
-    # Reconstruct RGB image
-    img_ycrcb[:, :, 0] = y_sr
-    img_sr = cv2.cvtColor(img_ycrcb, cv2.COLOR_YCrCb2BGR)
-    
-    return img_sr, y_bicubic, y_sr
 
 if __name__ == '__main__':
     import argparse
+    from src import GenerativeNetwork, WholeImageDataset
 
     parser = argparse.ArgumentParser(description="Script to allow choosing of model type")
-    parser.add_argument("--model", help="the model you want to train", default="SRGAN")
     # parser.add_argument("--checkpoint", type=str, required=True,
     #                     help="Path to generator checkpoint (.pth file)")
     parser.add_argument("--val_dir", type=str, default='data/valid',
@@ -371,60 +297,55 @@ if __name__ == '__main__':
     parser.add_argument("--downscale_factor", type=int, default=4,
                         help="Downscale factor")
     args = parser.parse_args()
-    if args.model == 'SRCNN':
-        from src_SRCNN import SRCNN
-        model = SRCNN()
-        model.load_state_dict(torch.load('model_checkpoints/SRCNN/checkpoint.pth'))
+
+    if os.name == 'nt':
+            try:
+                import torch_directml
+                device = torch_directml.device()
+                print("Using DirectML device")
+            except ImportError:
+                device = torch.device('cpu')
+                print("DirectML not available, using CPU")
     else:
-        from src_SRGAN import GenerativeNetwork, WholeImageDataset
-        if os.name == 'nt':
-                try:
-                    import torch_directml
-                    device = torch_directml.device()
-                    print("Using DirectML device")
-                except ImportError:
-                    device = torch.device('cpu')
-                    print("DirectML not available, using CPU")
-        else:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            print(f"Using device: {device}")
-        generator = GenerativeNetwork()
-        
-        # Create validation dataset and dataloader
-        val_dataset = WholeImageDataset(
-            img_dir=args.val_dir,
-            downscale_factor=args.downscale_factor
-        )
-        
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=0,  # Set to 0 to avoid issues with variable image sizes
-            pin_memory=False
-        )
-        
-        print(f"\nValidation set size: {len(val_dataset)} images")
-        print(f"Number of batches: {len(val_loader)}")
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device: {device}")
+    generator = GenerativeNetwork()
+    
+    # Create validation dataset and dataloader
+    val_dataset = WholeImageDataset(
+        img_dir=args.val_dir,
+        downscale_factor=args.downscale_factor
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,  # Set to 0 to avoid issues with variable image sizes
+        pin_memory=False
+    )
+    
+    print(f"\nValidation set size: {len(val_dataset)} images")
+    print(f"Number of batches: {len(val_loader)}")
+    results = evaluate_SRGAN(
+        generator=generator,
+        val_loader=val_loader,
+        device=device,
+        checkpoint_path="model_checkpoints/SRGAN/SRResNet_pretrained_final.pth",
+        save_images=True,
+        num_images_to_save=args.num_images,
+        output_dir="outputs_pre_gan"
+    )
+    for i in range(2,9):
+    # Run evaluation
         results = evaluate_SRGAN(
             generator=generator,
             val_loader=val_loader,
             device=device,
-            checkpoint_path="model_checkpoints/SRGAN/SRResNet_pretrained_final.pth",
+            checkpoint_path=f"model_checkpoints/SRGAN/checkpoint_epoch_{i}.pth",
             save_images=True,
             num_images_to_save=args.num_images,
-            output_dir="outputs_pre_gan"
+            output_dir=f"outputs_epoch_{i}"
         )
-        for i in range(2,9):
-        # Run evaluation
-            results = evaluate_SRGAN(
-                generator=generator,
-                val_loader=val_loader,
-                device=device,
-                checkpoint_path=f"model_checkpoints/SRGAN/checkpoint_epoch_{i}.pth",
-                save_images=True,
-                num_images_to_save=args.num_images,
-                output_dir=f"outputs_epoch_{i}"
-            )
-        
-        print("\nEvaluation complete!")
+    
+    print("\nEvaluation complete!")
